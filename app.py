@@ -15,9 +15,9 @@ except ImportError:
     st.sidebar.error("💡 'pip install streamlit-autorefresh'가 필요합니다.")
 
 # 페이지 설정
-st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.22.14", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.22.15", layout="wide", initial_sidebar_state="expanded")
 
-# 2. 통합 CSS 스타일링 (불필요한 컨테이너 제거 및 여백 압축)
+# 2. 통합 CSS 스타일링 (여백 압축, 블러 박멸, 일체형 UI)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -29,7 +29,7 @@ st.markdown("""
         opacity: 1 !important; filter: none !important; transition: none !important;
     }
 
-    /* 화면 상단 극한 밀착 */
+    /* 화면 상단 극한 밀착 (Lift-up) */
     .main .block-container { 
         padding-top: 0.2rem !important; 
         padding-bottom: 0rem !important; 
@@ -42,12 +42,12 @@ st.markdown("""
         color: #ffffff; letter-spacing: -1px;
     }
 
-    /* 사이드바 메뉴 스타일 */
+    /* 사이드바 메뉴 폰트 확대 및 점 제거 */
     [data-testid="stSidebar"] [role="radiogroup"] label > div:first-child { display: none !important; }
     [data-testid="stSidebar"] .stRadio p {
         font-size: 1.55rem !important; 
         font-weight: 800 !important;
-        padding: 10px 0px !important;
+        padding: 12px 0px !important;
     }
 
     .section-header {
@@ -90,7 +90,7 @@ st.markdown("""
     }
     .wide-mini-card-label { color:#aaa; font-size:1.05rem; font-weight:600; margin-right:15px; }
 
-    /* 🔥 [핵심 수정] 상자는 없애고 텍스트 스타일만 유지 */
+    /* 상세 분석 텍스트 디자인 (상자 제거 버전) */
     .detail-header-text { 
         font-size: 1.35rem !important; 
         font-weight: 700; 
@@ -106,7 +106,7 @@ st.markdown("""
     .pos-val { color: #34c759 !important; font-weight: 600; } 
     .neg-val { color: #ff3b30 !important; font-weight: 600; }
 
-    /* 통화 버튼 정중앙 보정 */
+    /* 통화 버튼 정중앙 보정 및 격리 디자인 */
     [data-testid="column"] div[data-baseweb="select"] {
         background-color: rgba(128, 128, 128, 0.1) !important;
         border: 1px solid rgba(128, 128, 128, 0.2) !important;
@@ -135,7 +135,7 @@ def load_data():
 
 def save_data(df): df.to_csv(DB_FILE, index=False)
 
-# 롤링 애니메이션 엔진 (보존)
+# 롤링 애니메이션 엔진 (사용자님이 만족하신 v26.4.22.3 핵심 로직 그대로)
 def create_animated_card_html(label, current_val, formatted_val, sub_str, diff_color, is_int=True):
     uid = hashlib.md5(label.encode()).hexdigest()[:8]
     prev_key = f"prev_metric_{label}"; prev_val = st.session_state.get(prev_key, current_val); st.session_state[prev_key] = current_val
@@ -148,7 +148,7 @@ def create_animated_card_html(label, current_val, formatted_val, sub_str, diff_c
         var duration = 1800; var startTime = performance.now();
         var finalStr = "{formatted_val}";
         if(Math.abs(start - end) > 0.001) {{
-            el.style.color = end > start ? '#34c759' : '#ff3b30';
+            el.classList.add('is-rolling'); el.style.color = end > start ? '#34c759' : '#ff3b30';
             function update(time) {{
                 var elapsed = time - startTime; if(elapsed > duration) elapsed = duration;
                 var progress = 1 - Math.pow(1 - (elapsed/duration), 3);
@@ -221,9 +221,9 @@ if menu == "📍 시장 주요 지표":
                 fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=180, xaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
     st.markdown('<div class="section-header" style="margin-top:20px !important;">📊 매크로 지표</div>', unsafe_allow_html=True)
-    ordered_keys = ['미 국채 10년물', '미 국채 2년물', '달러인덱스', '반도체', 'VIX', '금', '오일', 'USDKRW', '비트코인', '이더리움']
+    macro_keys = ['미 국채 10년물', '미 국채 2년물', '달러인덱스', '반도체', 'VIX', '금', '오일', 'USDKRW', '비트코인', '이더리움']
     macro_html = '<div class="macro-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top:10px;">'
-    for key in ordered_keys:
+    for key in macro_keys:
         if key == "USDKRW": macro_html += create_animated_card_html("실시간 환율", fx_rates['KRW'], f"₩{fx_rates['KRW']:,.0f}", f"{krw_pct:+.1f}%", "#34c759" if krw_pct > 0 else "#ff3b30")
         elif key in market_metrics:
             m = market_metrics[key]; val_fmt = f"{m['val']:.2f}%" if '국채' in key else f"${m['val']:,.0f}"
@@ -262,10 +262,9 @@ elif menu == "💰 내 자산 관리":
     with c3:
         if st.button("🔍", key="unified_btn", type="primary"): st.session_state.show_portfolio_detail = not st.session_state.get('show_portfolio_detail', False)
 
-    # 🔥 [수정 핵심] 'detail-container' (상자) 제거 및 배경 일체화
+    # 🔥 [v26.4.22.15 핵심] 상자 제거 및 배경 일체형 상세 분석
     if st.session_state.get('show_portfolio_detail', False) and not portfolio_df.empty:
         st.markdown(f'<div class="detail-header-text">🔍 포트폴리오 통합 상세 분석 ({cur})</div>', unsafe_allow_html=True)
-        
         df_display = pd.DataFrame(res_list); col_p, col_t = st.columns([1.1, 2.4])
         with col_p:
             fig_pie = px.pie(df_display, values='Val', names='Sector', hole=0.5, color_discrete_sequence=px.colors.sequential.Greens_r)
@@ -278,7 +277,6 @@ elif menu == "💰 내 자산 관리":
                 table_html += f"<tr><td><b>{r['Ticker']}</b></td><td>{r['Sector']}</td><td>{r['Quantity']:,.1f}</td><td class='{p_cls}'>{r['Profit']:+.1f}%</td><td><b>{sym}{r['Val']*rate:,.0f}</b></td></tr>"
             st.markdown(table_html + "</tbody></table>", unsafe_allow_html=True)
 
-    # 종목 관리 메뉴 간격 보정 (상자 제거 후 레이아웃 조정)
     st.markdown('<div style="margin-top: 25px;"></div>', unsafe_allow_html=True)
     with st.expander("⚙️ 종목 관리 메뉴 (추가/삭제)", expanded=portfolio_df.empty):
         e1, e2, e3 = st.columns(3); t_in = e1.text_input("티커").upper(); p_in = e2.number_input("평단가(USD)", 0.0); q_in = e3.number_input("보유수량", 0.0)
