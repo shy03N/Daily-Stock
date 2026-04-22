@@ -5,7 +5,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import os
 from datetime import datetime
-import hashlib
 
 # 1. 라이브 갱신 설정 (15초 자동 새로고침)
 try:
@@ -15,9 +14,9 @@ except ImportError:
     st.sidebar.error("💡 'pip install streamlit-autorefresh'가 필요합니다.")
 
 # 페이지 설정
-st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.22.15", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.23.11", layout="wide", initial_sidebar_state="expanded")
 
-# 2. 통합 CSS 스타일링 (여백 압축, 블러 박멸, 일체형 UI)
+# 2. 통합 CSS 스타일링 (마스터 레이아웃 고정)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -38,16 +37,16 @@ st.markdown("""
 
     .main-title {
         font-size: 2.5rem !important; font-weight: 800 !important;
-        margin-top: -75px !important; margin-bottom: 10px !important;
+        margin-top: -75px !important; margin-bottom: 5px !important;
         color: #ffffff; letter-spacing: -1px;
     }
 
-    /* 사이드바 메뉴 폰트 확대 및 점 제거 */
+    /* 사이드바 메뉴 스타일 및 점 제거 */
     [data-testid="stSidebar"] [role="radiogroup"] label > div:first-child { display: none !important; }
     [data-testid="stSidebar"] .stRadio p {
         font-size: 1.55rem !important; 
         font-weight: 800 !important;
-        padding: 12px 0px !important;
+        padding: 10px 0px !important;
     }
 
     .section-header {
@@ -56,7 +55,7 @@ st.markdown("""
         color: #ffffff;
     }
     
-    /* 🔍 버튼 디자인: 우측 끝 벽면 밀착 */
+    /* 🔍 버튼 디자인: 우측 끝 벽면 밀착 정렬 */
     div.stButton { width: 100% !important; display: flex !important; }
     button[kind="primary"] {
         width: 100% !important; height: 222px !important; 
@@ -78,6 +77,7 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         display: flex; flex-direction: column; height: 135px; justify-content: center;
         border: 1px solid rgba(128, 128, 128, 0.1);
+        margin-bottom: 10px;
     }
     .metric-val { font-size: 2.1rem !important; font-weight: 700; color: #ffffff; display: flex; overflow: hidden; height: 2.8rem; line-height: 2.8rem; white-space: nowrap; }
 
@@ -90,14 +90,30 @@ st.markdown("""
     }
     .wide-mini-card-label { color:#aaa; font-size:1.05rem; font-weight:600; margin-right:15px; }
 
-    /* 상세 분석 텍스트 디자인 (상자 제거 버전) */
+    /* 통화 선택 버튼 전용 CSS: 화살표 제거 및 정중앙 정렬 */
+    [data-testid="column"] div[data-baseweb="select"] {
+        background-color: rgba(128, 128, 128, 0.1) !important;
+        border: 1px solid rgba(128, 128, 128, 0.2) !important;
+        border-radius: 12px !important;
+        height: 38px !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+    }
+    [data-testid="column"] div[data-baseweb="select"] svg { display: none !important; }
+    [data-testid="column"] div[data-baseweb="select"] > div:first-child {
+        padding-right: 0 !important; padding-left: 0 !important;
+        justify-content: center !important; text-align: center !important;
+    }
+    [data-testid="column"] div[data-baseweb="select"] * {
+        text-align: center !important; font-weight: 700 !important; color: #ffffff !important;
+        font-size: 0.95rem !important; line-height: 1 !important;
+    }
+
+    /* 일체형 상세 분석 텍스트 디자인 */
     .detail-header-text { 
-        font-size: 1.35rem !important; 
-        font-weight: 700; 
-        color: #ffffff; 
-        padding-bottom: 12px;
-        margin-top: 25px !important;
-        margin-bottom: 15px !important;
+        font-size: 1.35rem !important; font-weight: 700; color: #ffffff; 
+        padding-bottom: 12px; margin-top: 5px !important; margin-bottom: 15px !important;
         border-bottom: 1px solid rgba(255,255,255,0.08); 
     }
     
@@ -105,20 +121,6 @@ st.markdown("""
     .custom-table td { padding: 12px 15px; border-bottom: 1px solid rgba(128, 128, 128, 0.08); }
     .pos-val { color: #34c759 !important; font-weight: 600; } 
     .neg-val { color: #ff3b30 !important; font-weight: 600; }
-
-    /* 통화 버튼 정중앙 보정 및 격리 디자인 */
-    [data-testid="column"] div[data-baseweb="select"] {
-        background-color: rgba(128, 128, 128, 0.1) !important;
-        border: 1px solid rgba(128, 128, 128, 0.2) !important;
-        border-radius: 12px !important; height: 38px !important;
-        display: flex !important; justify-content: center !important; align-items: center !important;
-    }
-    [data-testid="column"] div[data-baseweb="select"] > div:first-child { padding-right: 0 !important; justify-content: center !important; }
-    [data-testid="column"] div[data-baseweb="select"] svg { display: none !important; }
-    [data-testid="column"] div[data-baseweb="select"] * {
-        text-align: center !important; font-weight: 700 !important; color: #ffffff !important;
-        font-size: 0.95rem !important; line-height: 1 !important; padding: 0 !important;
-    }
 
     :root { --primary-color: #34c759 !important; }
     hr { margin: 1px 0 !important; opacity: 0.02; }
@@ -135,37 +137,15 @@ def load_data():
 
 def save_data(df): df.to_csv(DB_FILE, index=False)
 
-# 롤링 애니메이션 엔진 (사용자님이 만족하신 v26.4.22.3 핵심 로직 그대로)
-def create_animated_card_html(label, current_val, formatted_val, sub_str, diff_color, is_int=True):
-    uid = hashlib.md5(label.encode()).hexdigest()[:8]
-    prev_key = f"prev_metric_{label}"; prev_val = st.session_state.get(prev_key, current_val); st.session_state[prev_key] = current_val
-    frac = "0" if is_int else "1"
-    js_code = f"""
-    var el = document.getElementById('val-{uid}');
-    if(el && !el.dataset.animated) {{
-        el.dataset.animated = 'true';
-        var start = {float(prev_val)}; var end = {float(current_val)};
-        var duration = 1800; var startTime = performance.now();
-        var finalStr = "{formatted_val}";
-        if(Math.abs(start - end) > 0.001) {{
-            el.classList.add('is-rolling'); el.style.color = end > start ? '#34c759' : '#ff3b30';
-            function update(time) {{
-                var elapsed = time - startTime; if(elapsed > duration) elapsed = duration;
-                var progress = 1 - Math.pow(1 - (elapsed/duration), 3);
-                var current = start + (end - start) * progress;
-                if(elapsed < duration) {{ el.style.filter = 'blur(0.5px)'; }} else {{ el.style.filter = 'none'; }}
-                var displayNum = current.toLocaleString(undefined, {{ minimumFractionDigits: {frac}, maximumFractionDigits: {frac} }});
-                var match = finalStr.match(/([^0-9,.]*)([0-9,.]+)([^0-9,.]*)/);
-                if(match) {{ el.innerText = match[1] + displayNum + match[3]; }} else {{ el.innerText = displayNum; }}
-                if(elapsed < duration) {{ requestAnimationFrame(update); }}
-                else {{ el.innerText = finalStr; setTimeout(() => {{ el.style.color = '#ffffff'; }}, 500); }}
-            }}
-            requestAnimationFrame(update);
-        }} else {{ el.innerText = finalStr; }}
-    }}
+def render_metric_card(label, val_fmt, sub_fmt, color):
+    card_html = f"""
+    <div class="custom-card">
+        <div style="color:#aaa; font-size:0.95rem;">{label}</div>
+        <div class="metric-val">{val_fmt}</div>
+        <div style="color: {color}; font-size:0.95rem;">{sub_fmt}</div>
+    </div>
     """
-    js_code_clean = js_code.replace('\n', ' ').replace('"', '&quot;')
-    return f"""<div class="custom-card"><div class="metric-title" style="color:#aaa; font-size:0.95rem;">{label}</div><div class="metric-val" id="val-{uid}">{formatted_val}</div><div style="color: {diff_color}; font-size:0.95rem;">{sub_str}</div><img src="x" style="display:none;" onerror="{js_code_clean}"></div>"""
+    st.markdown(card_html, unsafe_allow_html=True)
 
 @st.cache_data(ttl=10, show_spinner=False)
 def get_market_full_data():
@@ -216,26 +196,33 @@ if menu == "📍 시장 주요 지표":
     for i, name in enumerate(['나스닥', 'S&P500', '다우존스']):
         with c_idx[i]:
             if name in market_metrics:
-                m = market_metrics[name]; st.markdown(create_animated_card_html(name, m['val'], f"{m['val']:,.0f}", f"{m['diff']:+.1f} ({m['pct']:+.1f}%)", "#34c759" if m['diff']>0 else "#ff3b30"), unsafe_allow_html=True)
+                m = market_metrics[name]
+                render_metric_card(name, f"{m['val']:,.0f}", f"{m['diff']:+.1f} ({m['pct']:+.1f}%)", "#34c759" if m['diff']>0 else "#ff3b30")
                 fig = go.Figure(data=[go.Candlestick(x=market_charts[name].index, open=market_charts[name]['Open'], high=market_charts[name]['High'], low=market_charts[name]['Low'], close=market_charts[name]['Close'], increasing_line_color='#34c759', decreasing_line_color='#ff3b30')])
                 fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=180, xaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)')
                 st.plotly_chart(fig, use_container_width=True)
+
     st.markdown('<div class="section-header" style="margin-top:20px !important;">📊 매크로 지표</div>', unsafe_allow_html=True)
-    macro_keys = ['미 국채 10년물', '미 국채 2년물', '달러인덱스', '반도체', 'VIX', '금', '오일', 'USDKRW', '비트코인', '이더리움']
-    macro_html = '<div class="macro-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top:10px;">'
-    for key in macro_keys:
-        if key == "USDKRW": macro_html += create_animated_card_html("실시간 환율", fx_rates['KRW'], f"₩{fx_rates['KRW']:,.0f}", f"{krw_pct:+.1f}%", "#34c759" if krw_pct > 0 else "#ff3b30")
-        elif key in market_metrics:
-            m = market_metrics[key]; val_fmt = f"{m['val']:.2f}%" if '국채' in key else f"${m['val']:,.0f}"
-            macro_html += create_animated_card_html(key, m['val'], val_fmt, f"{m['pct']:+.1f}%", "#34c759" if m['diff']>0 else "#ff3b30")
-    st.markdown(macro_html + '</div>', unsafe_allow_html=True)
+    ordered_keys = ['미 국채 10년물', '미 국채 2년물', '달러인덱스', '반도체', 'VIX', '금', '오일', 'USDKRW', '비트코인', '이더리움']
+    macro_cols = st.columns(5)
+    for i, key in enumerate(ordered_keys):
+        with macro_cols[i % 5]:
+            if key == "USDKRW":
+                render_metric_card("실시간 환율", f"₩{fx_rates['KRW']:,.0f}", f"{krw_pct:+.1f}%", "#34c759" if krw_pct > 0 else "#ff3b30")
+            elif key in market_metrics:
+                m = market_metrics[key]
+                val_fmt = f"{m['val']:.2f}%" if '국채' in key else f"${m['val']:,.0f}"
+                render_metric_card(key, val_fmt, f"{m['pct']:+.1f}%", "#34c759" if m['diff']>0 else "#ff3b30")
 
 elif menu == "💰 내 자산 관리":
     portfolio_df = load_data()
     st.markdown('<div class="main-title">💰 내 자산 관리</div>', unsafe_allow_html=True)
-    c_head, c_select = st.columns([9.4, 0.6])
+    
+    # 💎 수직 칼정렬을 위한 통화 선택 버튼 비율 조정 [9.3 : 0.7]
+    c_head, c_select = st.columns([9.3, 0.7])
     with c_head: st.markdown('<div class="section-header">💳 내 자산 포트폴리오 요약</div>', unsafe_allow_html=True)
-    with c_select: st.session_state.currency = st.selectbox("", ["USD", "KRW", "EUR", "JPY"], index=["USD", "KRW", "EUR", "JPY"].index(st.session_state.get('currency', 'USD')), label_visibility="collapsed")
+    with c_select:
+        st.session_state.currency = st.selectbox("", ["USD", "KRW", "EUR", "JPY"], index=["USD", "KRW", "EUR", "JPY"].index(st.session_state.get('currency', 'USD')), label_visibility="collapsed")
     
     cur = st.session_state.get('currency', 'USD'); rate = fx_rates.get(cur, 1.0); sym = {'USD': '$', 'KRW': '₩', 'EUR': '€', 'JPY': '¥'}[cur]
 
@@ -252,17 +239,18 @@ elif menu == "💰 내 자산 관리":
     total_d_conv, day_chg_conv = total_d * rate, (total_v - total_prev_day) * rate
     ret_pct, day_pct = round(((total_v - total_inv) / total_inv * 100) if total_inv > 0 else 0, 1), round(((total_v - total_prev_day) / total_prev_day * 100) if total_prev_day > 0 else 0, 1)
 
-    c1, c2, c3 = st.columns([4.7, 4.7, 0.6])
+    # 💎 수직 칼정렬을 위한 자산카드/돋보기 비율 조정 [4.65 : 4.65 : 0.7]
+    c1, c2, c3 = st.columns([4.65, 4.65, 0.7])
     with c1:
-        st.markdown(create_animated_card_html("현재 총 자산 현황", total_v_conv, f"{sym}{total_v_conv:,.0f}", f"실시간 {cur} 합계", "#888"), unsafe_allow_html=True)
+        render_metric_card("현재 총 자산 현황", f"{sym}{total_v_conv:,.0f}", f"실시간 {cur} 합계", "#888")
         st.markdown(f'<div class="wide-mini-card"><span class="wide-mini-card-label">🔥 총 누적 수익:</span><span class="wide-mini-card-value" style="color:{"#34c759" if total_ret_conv>=0 else "#ff3b30"};">{sym}{total_ret_conv:,.0f} ({ret_pct:+.1f}%)</span></div>', unsafe_allow_html=True)
     with c2:
-        st.markdown(create_animated_card_html("연간 예상 배당금 현황", total_d_conv, f"{sym}{total_d_conv:,.0f}", "세전 연간 합계", "#888"), unsafe_allow_html=True)
+        render_metric_card("연간 예상 배당금 현황", f"{sym}{total_d_conv:,.0f}", "세전 연간 합계", "#888")
         st.markdown(f'<div class="wide-mini-card"><span class="wide-mini-card-label">📊 전일 대비 손익:</span><span class="wide-mini-card-value" style="color:{"#34c759" if day_chg_conv>=0 else "#ff3b30"};">{sym}{day_chg_conv:,.0f} ({day_pct:+.1f}%)</span></div>', unsafe_allow_html=True)
     with c3:
         if st.button("🔍", key="unified_btn", type="primary"): st.session_state.show_portfolio_detail = not st.session_state.get('show_portfolio_detail', False)
 
-    # 🔥 [v26.4.22.15 핵심] 상자 제거 및 배경 일체형 상세 분석
+    # 📊 일체형 상세 분석 UI
     if st.session_state.get('show_portfolio_detail', False) and not portfolio_df.empty:
         st.markdown(f'<div class="detail-header-text">🔍 포트폴리오 통합 상세 분석 ({cur})</div>', unsafe_allow_html=True)
         df_display = pd.DataFrame(res_list); col_p, col_t = st.columns([1.1, 2.4])
@@ -277,8 +265,8 @@ elif menu == "💰 내 자산 관리":
                 table_html += f"<tr><td><b>{r['Ticker']}</b></td><td>{r['Sector']}</td><td>{r['Quantity']:,.1f}</td><td class='{p_cls}'>{r['Profit']:+.1f}%</td><td><b>{sym}{r['Val']*rate:,.0f}</b></td></tr>"
             st.markdown(table_html + "</tbody></table>", unsafe_allow_html=True)
 
-    st.markdown('<div style="margin-top: 25px;"></div>', unsafe_allow_html=True)
-    with st.expander("⚙️ 종목 관리 메뉴 (추가/삭제)", expanded=portfolio_df.empty):
+    st.markdown('<div style="margin-top: 15px;"></div>', unsafe_allow_html=True)
+    with st.expander("⚙️ 종목 관리", expanded=portfolio_df.empty):
         e1, e2, e3 = st.columns(3); t_in = e1.text_input("티커").upper(); p_in = e2.number_input("평단가(USD)", 0.0); q_in = e3.number_input("보유수량", 0.0)
         if st.button("내 포트폴리오에 저장"):
             if t_in: save_data(pd.concat([portfolio_df, pd.DataFrame([{'Ticker': t_in, 'Price': p_in, 'Quantity': q_in}])], ignore_index=True)); st.rerun()
