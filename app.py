@@ -14,21 +14,19 @@ except ImportError:
     st.sidebar.error("💡 'pip install streamlit-autorefresh'가 필요합니다.")
 
 # 페이지 설정
-st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.23.11", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.23.12", layout="wide", initial_sidebar_state="expanded")
 
-# 2. 통합 CSS 스타일링 (마스터 레이아웃 고정)
+# 2. 통합 CSS 스타일링 (v26.4.23.11 명품 디자인 100% 유지)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
     
-    /* 갱신 시 블러 무력화 */
     [data-stale="true"], [data-stale="false"], 
     [data-testid="stAppViewContainer"], [data-testid="stMainBlockContainer"] {
         opacity: 1 !important; filter: none !important; transition: none !important;
     }
 
-    /* 화면 상단 극한 밀착 (Lift-up) */
     .main .block-container { 
         padding-top: 0.2rem !important; 
         padding-bottom: 0rem !important; 
@@ -41,7 +39,6 @@ st.markdown("""
         color: #ffffff; letter-spacing: -1px;
     }
 
-    /* 사이드바 메뉴 스타일 및 점 제거 */
     [data-testid="stSidebar"] [role="radiogroup"] label > div:first-child { display: none !important; }
     [data-testid="stSidebar"] .stRadio p {
         font-size: 1.55rem !important; 
@@ -55,7 +52,6 @@ st.markdown("""
         color: #ffffff;
     }
     
-    /* 🔍 버튼 디자인: 우측 끝 벽면 밀착 정렬 */
     div.stButton { width: 100% !important; display: flex !important; }
     button[kind="primary"] {
         width: 100% !important; height: 222px !important; 
@@ -70,7 +66,6 @@ st.markdown("""
 
     [data-testid="column"] { padding-left: 4px !important; padding-right: 4px !important; }
 
-    /* 통합 카드 디자인 */
     .custom-card {
         background-color: rgba(128, 128, 128, 0.1); 
         border-radius: 16px; padding: 22px 20px;
@@ -90,15 +85,11 @@ st.markdown("""
     }
     .wide-mini-card-label { color:#aaa; font-size:1.05rem; font-weight:600; margin-right:15px; }
 
-    /* 통화 선택 버튼 전용 CSS: 화살표 제거 및 정중앙 정렬 */
     [data-testid="column"] div[data-baseweb="select"] {
         background-color: rgba(128, 128, 128, 0.1) !important;
         border: 1px solid rgba(128, 128, 128, 0.2) !important;
-        border-radius: 12px !important;
-        height: 38px !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
+        border-radius: 12px !important; height: 38px !important;
+        display: flex !important; justify-content: center !important; align-items: center !important;
     }
     [data-testid="column"] div[data-baseweb="select"] svg { display: none !important; }
     [data-testid="column"] div[data-baseweb="select"] > div:first-child {
@@ -110,7 +101,6 @@ st.markdown("""
         font-size: 0.95rem !important; line-height: 1 !important;
     }
 
-    /* 일체형 상세 분석 텍스트 디자인 */
     .detail-header-text { 
         font-size: 1.35rem !important; font-weight: 700; color: #ffffff; 
         padding-bottom: 12px; margin-top: 5px !important; margin-bottom: 15px !important;
@@ -217,8 +207,6 @@ if menu == "📍 시장 주요 지표":
 elif menu == "💰 내 자산 관리":
     portfolio_df = load_data()
     st.markdown('<div class="main-title">💰 내 자산 관리</div>', unsafe_allow_html=True)
-    
-    # 💎 수직 칼정렬을 위한 통화 선택 버튼 비율 조정 [9.3 : 0.7]
     c_head, c_select = st.columns([9.3, 0.7])
     with c_head: st.markdown('<div class="section-header">💳 내 자산 포트폴리오 요약</div>', unsafe_allow_html=True)
     with c_select:
@@ -239,7 +227,6 @@ elif menu == "💰 내 자산 관리":
     total_d_conv, day_chg_conv = total_d * rate, (total_v - total_prev_day) * rate
     ret_pct, day_pct = round(((total_v - total_inv) / total_inv * 100) if total_inv > 0 else 0, 1), round(((total_v - total_prev_day) / total_prev_day * 100) if total_prev_day > 0 else 0, 1)
 
-    # 💎 수직 칼정렬을 위한 자산카드/돋보기 비율 조정 [4.65 : 4.65 : 0.7]
     c1, c2, c3 = st.columns([4.65, 4.65, 0.7])
     with c1:
         render_metric_card("현재 총 자산 현황", f"{sym}{total_v_conv:,.0f}", f"실시간 {cur} 합계", "#888")
@@ -250,8 +237,7 @@ elif menu == "💰 내 자산 관리":
     with c3:
         if st.button("🔍", key="unified_btn", type="primary"): st.session_state.show_portfolio_detail = not st.session_state.get('show_portfolio_detail', False)
 
-    # 📊 일체형 상세 분석 UI
-    if st.session_state.get('show_portfolio_detail', False) and not portfolio_df.empty:
+    if st.session_state.get('show_portfolio_detail', False) and res_list:
         st.markdown(f'<div class="detail-header-text">🔍 포트폴리오 통합 상세 분석 ({cur})</div>', unsafe_allow_html=True)
         df_display = pd.DataFrame(res_list); col_p, col_t = st.columns([1.1, 2.4])
         with col_p:
@@ -274,7 +260,8 @@ elif menu == "💰 내 자산 관리":
             del_t = st.selectbox("삭제 종목", portfolio_df['Ticker'].tolist())
             if st.button("삭제"): save_data(portfolio_df[portfolio_df['Ticker'] != del_t]); st.rerun()
 
-    if not portfolio_df.empty:
+    # 🔥 [KeyError 해결 핵심] res_list가 비어있지 않을 때만 트리맵 렌더링
+    if not portfolio_df.empty and res_list:
         st.markdown('<hr style="margin: 2px 0; opacity: 0.02;">', unsafe_allow_html=True) 
         st.markdown(f'<div class="section-header" style="margin-top:-5px !important; margin-bottom: 5px !important;">🗺️ 섹터별 자산 비중 & 일일 등락 ({cur})</div>', unsafe_allow_html=True)
         df_tree = pd.DataFrame(res_list); df_tree['Val_Conv'] = df_tree['Val'] * rate
