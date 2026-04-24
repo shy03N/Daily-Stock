@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import numpy as np
 from streamlit_gsheets import GSheetsConnection
 
-# 1. 라이브 갱신 설정
+# 1. 라이브 갱신 설정 (20초 자동 새로고침)
 try:
     from streamlit_autorefresh import st_autorefresh
     st_autorefresh(interval=20000, key="live_refresh")
@@ -17,9 +17,9 @@ except ImportError:
     st.sidebar.error("💡 'pip install streamlit-autorefresh'가 필요합니다.")
 
 # [제5원칙] 화면 효율 극대화 및 버전 업데이트
-st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.24.17", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.24.18", layout="wide", initial_sidebar_state="expanded")
 
-# 미국 시장 상태 판별 함수 (타임존 고정)
+# 미국 시장 상태 판별 함수 (한국 시간 강제 고정)
 def get_us_market_status():
     now_utc = datetime.utcnow()
     now_kst = now_utc + timedelta(hours=9) 
@@ -37,13 +37,19 @@ st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
+    
+    /* [🛡️ 블러 박멸 로직] */
     [data-stale="true"] { opacity: 1 !important; filter: none !important; transition: none !important; }
     [data-stale="true"] * { opacity: 1 !important; filter: none !important; }
+
     .main .block-container { padding-top: 0.2rem !important; padding-bottom: 0rem !important; max-width: 98% !important; }
     .main-title { font-size: 2.5rem !important; font-weight: 800 !important; margin-top: -75px !important; margin-bottom: 5px !important; color: #ffffff; letter-spacing: -1px; }
+
     [data-testid="stSidebar"] [role="radiogroup"] label > div:first-child { display: none !important; }
     [data-testid="stSidebar"] .stRadio p { font-size: 1.55rem !important; font-weight: 800 !important; padding: 10px 0px !important; }
     .section-header { font-size: 1.4rem !important; font-weight: 700 !important; margin-top: 2px !important; margin-bottom: 10px !important; color: #ffffff; }
+    
+    /* 🔍 버튼 디자인 성역 (222px) */
     div.stButton { width: 100% !important; display: flex !important; }
     button[kind="primary"] {
         width: 100% !important; height: 222px !important; 
@@ -52,16 +58,20 @@ st.markdown("""
     }
     button[kind="primary"]:hover { background-color: rgba(52, 199, 89, 0.2) !important; border-color: #34c759 !important; }
     button[kind="primary"] p { font-size: 2.8rem !important; margin: 0 !important; }
+
     .custom-card { background-color: rgba(128, 128, 128, 0.1); border-radius: 16px; padding: 22px 20px; display: flex; flex-direction: column; height: 135px; justify-content: center; border: 1px solid rgba(128, 128, 128, 0.1); margin-bottom: 10px; }
     .metric-val { font-size: 2.1rem !important; font-weight: 700; color: #ffffff; line-height: 2.8rem; white-space: nowrap; }
     .wide-mini-card { background-color: rgba(128, 128, 128, 0.1); border: 1px solid rgba(128, 128, 128, 0.05); border-radius: 12px; padding: 0 25px; margin-top: 10px; display: flex; align-items: center; height: 75px; }
     .wide-mini-card-label { color:#aaa; font-size:1.05rem; font-weight:600; margin-right:15px; }
+
+    /* [🛡️ 콤팩트 성역] 32px */
     [data-testid="column"] div[data-baseweb="select"], [data-testid="column"] div[data-testid="stTextInput"] > div:first-child {
         background-color: rgba(128, 128, 128, 0.1) !important; border: 1px solid rgba(128, 128, 128, 0.2) !important;
         border-radius: 10px !important; height: 32px !important; display: flex !important; align-items: center !important;
     }
     [data-testid="column"] input { height: 32px !important; text-align: center !important; background: transparent !important; color: white !important; border: none !important; }
     [data-testid="column"] div[data-baseweb="select"] * { color: #ffffff !important; font-weight: 700 !important; font-size: 0.9rem !important; text-align: center !important; }
+
     .detail-header-text { font-size: 1.35rem !important; font-weight: 700; color: #ffffff; padding-bottom: 12px; margin-top: 35px !important; margin-bottom: 15px !important; border-bottom: 1px solid rgba(255,255,255,0.08); }
     .custom-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem !important; color: #ddd; }
     .custom-table td { padding: 12px 15px; border-bottom: 1px solid rgba(128, 128, 128, 0.08); }
@@ -71,26 +81,25 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 데이터 엔진 (실시간 구글 시트 연동 고도화)
+# 3. 데이터 엔진 (실시간 구글 시트 연동 & 증발 방지 로직)
 DB_FILE = "portfolio.csv"
 
 def load_data():
     default_df = pd.DataFrame(columns=["Ticker", "Price", "Quantity"])
     try:
-        # [🛡️ 실시간성 확보] ttl=0 강제
+        # [🛡️ 초강력 로드 로직] 캐시를 완전히 무시하고 시트에서 직접 읽음
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(ttl=0)
         if df is not None and not df.empty:
-            # 컬럼명 유연하게 대처 (대소문자 무시하고 매칭)
-            mapping = {col.lower(): col for col in df.columns}
-            new_df = pd.DataFrame()
-            new_df["Ticker"] = df[mapping['ticker']] if 'ticker' in mapping else df.iloc[:,0]
-            new_df["Price"] = pd.to_numeric(df[mapping['price']], errors='coerce').fillna(0) if 'price' in mapping else df.iloc[:,1]
-            new_df["Quantity"] = pd.to_numeric(df[mapping['quantity']], errors='coerce').fillna(0) if 'quantity' in mapping else df.iloc[:,2]
-            st.session_state.db_status = "🟢 구글 시트 동기화 완료"
-            return new_df.dropna(subset=["Ticker"])
+            # 컬럼명 정제 로직 (대소문자/공백 해결)
+            df.columns = [str(c).strip().capitalize() for c in df.columns]
+            df = df.rename(columns={'Price': 'Price', 'Quantity': 'Quantity', 'Ticker': 'Ticker', '평단가': 'Price', '수량': 'Quantity'})
+            # 유효한 티커만 필터링
+            df = df.dropna(subset=["Ticker"])
+            st.session_state.db_connection = True
+            return df[["Ticker", "Price", "Quantity"]]
     except:
-        st.session_state.db_status = "🟡 시트 연결 실패 (로컬 데이터 사용 중)"
+        st.session_state.db_connection = False
         if os.path.exists(DB_FILE):
             try:
                 df = pd.read_csv(DB_FILE)
@@ -100,10 +109,13 @@ def load_data():
 
 def save_data(df):
     try:
+        # 1. 로컬 파일 즉시 업데이트
         df.to_csv(DB_FILE, index=False)
+        # 2. 구글 시트 즉시 덮어쓰기
         conn = st.connection("gsheets", type=GSheetsConnection)
         conn.update(data=df)
-        st.cache_data.clear() # 캐시 폭파
+        # [🛡️ 증발 방지 핵심] 저장 후 모든 캐시를 삭제하여 새로고침 시 최신본 강제 로드
+        st.cache_data.clear()
     except: pass
 
 def render_metric_card(label, val_fmt, sub_fmt, color):
@@ -148,7 +160,8 @@ def get_chart_data(ticker, interval="1d"):
         if isinstance(hist.columns, pd.MultiIndex): hist.columns = hist.columns.get_level_values(0)
         for w in [5, 30, 60, 120, 200]: hist[f'MA{w}'] = hist['Close'].rolling(window=w).mean()
         h9, l9 = hist['High'].rolling(9).max(), hist['Low'].rolling(9).min()
-        hist['Tenkan'], h26, l26 = (h9 + l9) / 2, hist['High'].rolling(26).max(), hist['Low'].rolling(26).min()
+        hist['Tenkan'] = (h9 + l9) / 2
+        h26, l26 = hist['High'].rolling(26).max(), hist['Low'].rolling(26).min()
         hist['Kijun'] = (h26 + l26) / 2
         hist['SpanA'] = ((hist['Tenkan'] + hist['Kijun']) / 2).shift(26)
         h52, l52 = hist['High'].rolling(52).max(), hist['Low'].rolling(52).min()
@@ -245,8 +258,9 @@ elif menu == "💰 내 자산 관리":
         if not portfolio_df.empty:
             del_t = st.selectbox("삭제 종목", portfolio_df['Ticker'].tolist())
             if st.button("삭제"): save_data(portfolio_df[portfolio_df['Ticker'] != del_t]); st.rerun()
-            st.info(st.session_state.get('db_status', '📡 서버 연결 확인 중...'))
-            st.download_button("내 포트폴리오 백업(CSV)", portfolio_df.to_csv(index=False), "portfolio_backup.csv", "text/csv")
+            # 서버 상태 출력
+            conn_status = "🟢 구글 시트 실시간 연동 중" if st.session_state.get('db_connection', False) else "🔴 서버 연결 실패 (로컬 모드)"
+            st.markdown(f"<div style='font-size:0.85rem; color:#888; margin-top:10px;'>📡 상태: {conn_status}</div>", unsafe_allow_html=True)
 
     if r_l:
         st.markdown(f'<div class="section-header" style="margin-top:20px !important;">🗺️ 섹터별 자산 비중 & 일일 등락 ({cur})</div>', unsafe_allow_html=True)
@@ -296,4 +310,4 @@ elif menu == "📊 종목 정밀 분석":
 st.sidebar.markdown('<div style="min-height: 40vh;"></div>', unsafe_allow_html=True)
 st.sidebar.markdown(f'<div class="market-status-badge">{get_us_market_status()}</div>', unsafe_allow_html=True)
 st.sidebar.divider()
-st.sidebar.markdown(f"<div style='text-align: center; color: #888; font-size: 0.95rem; font-weight: 600;'>v26.4.24.17 | {datetime.now().strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
+st.sidebar.markdown(f"<div style='text-align: center; color: #888; font-size: 0.95rem; font-weight: 600;'>v26.4.24.18 | {datetime.now().strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
