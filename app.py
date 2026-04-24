@@ -16,13 +16,13 @@ except ImportError:
     st.sidebar.error("💡 'pip install streamlit-autorefresh'가 필요합니다.")
 
 # [제5원칙] 화면 효율 극대화 및 버전 업데이트
-st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.24.12", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.24.13", layout="wide", initial_sidebar_state="expanded")
 
 # 미국 시장 상태 판별 함수 (타임존 에러 해결 버전)
 def get_us_market_status():
-    # [🛡️ 타임존 성역] 서버가 UTC여도 강제로 한국 시간(KST)으로 변환
+    # [🛡️ 타임존 성역] 서버(UTC)에 관계없이 한국 시간(KST)으로 강제 고정
     now_utc = datetime.utcnow()
-    now_kst = now_utc + timedelta(hours=9) # UTC+9
+    now_kst = now_utc + timedelta(hours=9) 
     
     weekday = now_kst.weekday()
     hour, minute = now_kst.hour, now_kst.minute
@@ -30,7 +30,7 @@ def get_us_market_status():
     
     if weekday >= 5: return "⚪ 시장 마감 (주말)"
     
-    # 한국 시간 기준 마켓 구분 로직 (마스터 파일 규격 고수)
+    # 한국 시간 기준 마켓 타임라인 (마스터 규격 엄수)
     if 10.0 <= curr_time < 17.0: return "☀️ 데이마켓"
     elif 17.0 <= curr_time < 22.5: return "🌅 프리마켓"
     elif curr_time >= 22.5 or curr_time < 5.0: return "🟢 정규장"
@@ -42,7 +42,7 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
     
-    /* [🛡️ 블러 박멸 로직] 새로고침 시 흐려짐 현상 원천 차단 */
+    /* [🛡️ 블러 박멸 로직] */
     [data-stale="true"] { opacity: 1 !important; filter: none !important; transition: none !important; }
     [data-stale="true"] * { opacity: 1 !important; filter: none !important; }
 
@@ -85,19 +85,23 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 데이터 엔진 (벌크 페칭 로직 및 배포 환경 예외 처리)
+# 3. 데이터 엔진 (KeyError 및 배포 환경 최적화)
 DB_FILE = "portfolio.csv"
 def load_data():
+    # 기본 구조 보장 (KeyError 방지용)
+    default_df = pd.DataFrame(columns=["Ticker", "Price", "Quantity"])
     if os.path.exists(DB_FILE):
         try:
             df = pd.read_csv(DB_FILE)
-            return df.rename(columns={'ticker': 'Ticker', 'price': 'Price', 'quantity': 'Quantity', '평단가': 'Price', '수량': 'Quantity'})
-        except: return pd.DataFrame(columns=["Ticker", "Price", "Quantity"])
-    return pd.DataFrame(columns=["Ticker", "Price", "Quantity"])
+            df = df.rename(columns={'ticker': 'Ticker', 'price': 'Price', 'quantity': 'Quantity', '평단가': 'Price', '수량': 'Quantity'})
+            # 필요한 열이 없으면 기본 열 추가
+            for col in ["Ticker", "Price", "Quantity"]:
+                if col not in df.columns: df[col] = 0 if col != "Ticker" else "N/A"
+            return df[["Ticker", "Price", "Quantity"]]
+        except: return default_df
+    return default_df
 
-def save_data(df): 
-    # [🛡️ 배포 환경 참고] 깃허브 배포 시 로컬 저장은 임시 메모리에만 유지됨
-    df.to_csv(DB_FILE, index=False)
+def save_data(df): df.to_csv(DB_FILE, index=False)
 
 def render_metric_card(label, val_fmt, sub_fmt, color):
     card_html = f"""<div class="custom-card"><div style="color:#aaa; font-size:0.95rem;">{label}</div><div class="metric-val">{val_fmt}</div><div style="color: {color}; font-size:0.95rem;">{sub_fmt}</div></div>"""
@@ -137,7 +141,7 @@ def get_market_bulk_data():
 def get_chart_data(ticker, interval="1d"):
     try:
         tk = yf.Ticker(ticker)
-        # [🛡️ 이평선 끊김 해결] 2y 데이터 버퍼 확보
+        # [🛡️ 차트 끊김 해결 성역] 2y 확보
         p = "2y" if interval == "1d" else "5y" if interval == "1wk" else "max"
         hist = tk.history(period=p, interval=interval)
         if hist.empty: return pd.DataFrame(), {}
@@ -168,17 +172,7 @@ if menu == "📍 시장 주요 지표":
             if name in market_metrics:
                 m = market_metrics[name]
                 render_metric_card(name, f"{m['val']:,.0f}", f"{m['diff']:+.1f} ({m['pct']:+.1f}%)", "#34c759" if m['diff']>0 else "#ff3b30")
-                
-                # [🛡️ 지수 캔들차트 성역 보존]
-                fig = go.Figure(data=[go.Candlestick(
-                    x=market_charts[name].index, 
-                    open=market_charts[name]['Open'], 
-                    high=market_charts[name]['High'], 
-                    low=market_charts[name]['Low'], 
-                    close=market_charts[name]['Close'], 
-                    increasing_line_color='#34c759', 
-                    decreasing_line_color='#ff3b30'
-                )])
+                fig = go.Figure(data=[go.Candlestick(x=market_charts[name].index, open=market_charts[name]['Open'], high=market_charts[name]['High'], low=market_charts[name]['Low'], close=market_charts[name]['Close'], increasing_line_color='#34c759', decreasing_line_color='#ff3b30')])
                 fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=180, xaxis_visible=False, paper_bgcolor='rgba(0,0,0,0)', showlegend=False, xaxis_rangeslider_visible=False)
                 st.plotly_chart(fig, use_container_width=True)
     
@@ -212,20 +206,13 @@ elif menu == "💰 내 자산 관리":
                 cp = float(hist_t['Close'].iloc[-1].item())
                 pp = float(hist_t['Close'].iloc[-2].item())
                 info_t = yf.Ticker(sym_t).info
-                
-                # [🛡️ 원자재 섹터 매핑] SLV, GLDM
                 target_sector = "원자재" if sym_t in ["SLV", "GLDM"] else info_t.get('sector', '기타')
-                
-                # [🛡️ 어도비 등 소수점 정밀도 대응]
                 val = round(cp * row['Quantity'], 1)
                 inv = round(row['Price'] * row['Quantity'], 1)
                 prev_val = round(pp * row['Quantity'], 1)
-                div_val = round(float(info_t.get('dividendRate', 0) or 0) * row['Quantity'], 1)
-                
                 profit_pct = round(((cp - row['Price']) / row['Price'] * 100) if row['Price'] != 0 else 0.0, 1)
                 day_pct = round(((cp - pp) / pp * 100) if pp != 0 else 0.0, 1)
-                
-                t_v += val; t_i += inv; t_p += prev_val; t_d += div_val
+                t_v += val; t_i += inv; t_p += prev_val; t_d += round(float(info_t.get('dividendRate', 0) or 0) * row['Quantity'], 1)
                 r_l.append({**row.to_dict(), 'Sector': target_sector, 'Val': val, 'Profit': profit_pct, 'DayPct': day_pct})
             except: pass
     
@@ -243,7 +230,7 @@ elif menu == "💰 내 자산 관리":
     with c3:
         if st.button("🔍", key="unified_btn", type="primary"): st.session_state.show_portfolio_detail = not st.session_state.get('show_portfolio_detail', False)
     
-    if st.session_state.get('show_portfolio_detail', False) and not portfolio_df.empty:
+    if st.session_state.get('show_portfolio_detail', False) and r_l:
         st.markdown(f'<div class="detail-header-text">🔍 포트폴리오 통합 상세 분석 ({cur})</div>', unsafe_allow_html=True)
         df_d = pd.DataFrame(r_l); col_p, col_t = st.columns([1.1, 2.4])
         with col_p:
@@ -265,10 +252,8 @@ elif menu == "💰 내 자산 관리":
         if not portfolio_df.empty:
             del_t = st.selectbox("삭제 종목", portfolio_df['Ticker'].tolist())
             if st.button("삭제"): save_data(portfolio_df[portfolio_df['Ticker'] != del_t]); st.rerun()
-            # [🛡️ 배포 환경 팁] 수동으로 CSV 다운로드 버튼 제공 (데이터 백업용)
-            st.download_button("내 포트폴리오 백업(CSV)", portfolio_df.to_csv(index=False), "portfolio_backup.csv", "text/csv")
 
-    if not portfolio_df.empty:
+    if r_l:
         st.markdown(f'<div class="section-header" style="margin-top:20px !important;">🗺️ 섹터별 자산 비중 & 일일 등락 ({cur})</div>', unsafe_allow_html=True)
         df_tr = pd.DataFrame(r_l); df_tr['Val_Conv'] = df_tr['Val'] * rate
         fig_tr = px.treemap(df_tr, path=[px.Constant("Portfolio"), 'Sector', 'Ticker'], values='Val_Conv', color='DayPct', color_continuous_scale='RdYlGn', color_continuous_midpoint=0, custom_data=['DayPct', 'Val_Conv'])
@@ -285,41 +270,33 @@ elif menu == "📊 종목 정밀 분석":
     with interval_col:
         i_c = st.selectbox("주기", ["일봉", "주봉", "월봉"], index=0, label_visibility="collapsed")
         interval = {"일봉": "1d", "주봉": "1wk", "월봉": "1mo"}[i_c]
-    
     target = selected_ticker if selected_ticker != "직접 검색" else (search_ticker if search_ticker else None)
-
     if target:
         hist, info = get_chart_data(target, interval=interval)
         if not hist.empty:
             st.markdown('<div style="height: 10px;"></div>', unsafe_allow_html=True)
             plot_df = hist.iloc[-150:]
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
-            
             fig.add_trace(go.Scatter(x=plot_df.index, y=np.where(plot_df['SpanA']>=plot_df['SpanB'], plot_df['SpanA'], np.nan), line=dict(width=0), showlegend=False), row=1, col=1)
             fig.add_trace(go.Scatter(x=plot_df.index, y=np.where(plot_df['SpanA']>=plot_df['SpanB'], plot_df['SpanB'], np.nan), fill='tonexty', fillcolor='rgba(52, 199, 89, 0.18)', line=dict(width=0), name="Yang"), row=1, col=1)
             fig.add_trace(go.Scatter(x=plot_df.index, y=np.where(plot_df['SpanA']<plot_df['SpanB'], plot_df['SpanA'], np.nan), line=dict(width=0), showlegend=False), row=1, col=1)
             fig.add_trace(go.Scatter(x=plot_df.index, y=np.where(plot_df['SpanA']<plot_df['SpanB'], plot_df['SpanB'], np.nan), fill='tonexty', fillcolor='rgba(255, 59, 48, 0.18)', line=dict(width=0), name="Um"), row=1, col=1)
             fig.add_trace(go.Candlestick(x=plot_df.index, open=plot_df['Open'], high=plot_df['High'], low=plot_df['Low'], close=plot_df['Close'], name="Price", increasing_line_color='#34c759', decreasing_line_color='#ff3b30'), row=1, col=1)
-            
             ma_cfg = {'MA5':('#fff59d',1.0), 'MA30':('#ffcc80',1.2), 'MA60':('#ffa726',1.5), 'MA120':('#e53935',1.8), 'MA200':('#7f0000',2.2)}
             for ma, (c, w) in ma_cfg.items(): 
                 if ma in plot_df.columns: fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df[ma], line=dict(color=c, width=w), name=ma), row=1, col=1)
-            
             fig.add_trace(go.Bar(x=plot_df.index, y=plot_df['Volume'], marker_color=['#34c759' if r['Open']<r['Close'] else '#ff3b30' for _, r in plot_df.iterrows()]), row=2, col=1)
             fig.update_layout(height=650, margin=dict(l=0, r=0, t=0, b=0), xaxis_rangeslider_visible=False, paper_bgcolor='rgba(0,0,0,0)', showlegend=False)
             st.plotly_chart(fig, use_container_width=True)
-
             dy_raw = info.get('dividendYield') or info.get('trailingAnnualDividendYield')
             div_fmt = f"{(dy_raw * 100 if dy_raw and dy_raw < 1.0 else dy_raw or 0):.2f}%" if dy_raw else "0.00%"
             st.markdown(f'<div class="detail-header-text">📊 {info.get("shortName", target)} 기업 핵심 지표</div>', unsafe_allow_html=True)
-            
-            # [🛡️ 지표 레이아웃 성역 보존]
+            # [🛡️ 지표 레이아웃 성역]
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("시가총액", f"${info.get('marketCap', 0)/1e9:.1f}B")
             m2.metric("현재 주가", f"${hist['Close'].iloc[-1]:,.2f}") 
             m3.metric("P/E Ratio", f"{info.get('trailingPE', 0):.2f}" if info.get('trailingPE') else "N/A") 
             m4.metric("EPS (TTM)", f"${info.get('trailingEps', 0):.2f}")
-            
             m5, m6, m7, m8 = st.columns(4)
             m5.metric("52주 최고가", f"${info.get('fiftyTwoWeekHigh', 0):,.2f}")
             m6.metric("52주 최저가", f"${info.get('fiftyTwoWeekLow', 0):,.2f}")
@@ -331,4 +308,4 @@ elif menu == "📊 종목 정밀 분석":
 st.sidebar.markdown('<div style="min-height: 40vh;"></div>', unsafe_allow_html=True)
 st.sidebar.markdown(f'<div class="market-status-badge">{get_us_market_status()}</div>', unsafe_allow_html=True)
 st.sidebar.divider()
-st.sidebar.markdown(f"<div style='text-align: center; color: #888; font-size: 0.95rem; font-weight: 600;'>v26.4.24.12 | {datetime.now().strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
+st.sidebar.markdown(f"<div style='text-align: center; color: #888; font-size: 0.95rem; font-weight: 600;'>v26.4.24.13 | {datetime.now().strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
