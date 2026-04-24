@@ -5,7 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import numpy as np
 
 # 1. 라이브 갱신 설정 (20초 자동 새로고침)
@@ -16,15 +16,21 @@ except ImportError:
     st.sidebar.error("💡 'pip install streamlit-autorefresh'가 필요합니다.")
 
 # [제5원칙] 화면 효율 극대화 및 버전 업데이트
-st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.24.11", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.24.12", layout="wide", initial_sidebar_state="expanded")
 
-# 미국 시장 상태 판별 함수
+# 미국 시장 상태 판별 함수 (타임존 에러 해결 버전)
 def get_us_market_status():
-    now = datetime.now()
-    weekday = now.weekday()
-    hour, minute = now.hour, now.minute
+    # [🛡️ 타임존 성역] 서버가 UTC여도 강제로 한국 시간(KST)으로 변환
+    now_utc = datetime.utcnow()
+    now_kst = now_utc + timedelta(hours=9) # UTC+9
+    
+    weekday = now_kst.weekday()
+    hour, minute = now_kst.hour, now_kst.minute
     curr_time = hour + minute / 60.0
+    
     if weekday >= 5: return "⚪ 시장 마감 (주말)"
+    
+    # 한국 시간 기준 마켓 구분 로직 (마스터 파일 규격 고수)
     if 10.0 <= curr_time < 17.0: return "☀️ 데이마켓"
     elif 17.0 <= curr_time < 22.5: return "🌅 프리마켓"
     elif curr_time >= 22.5 or curr_time < 5.0: return "🟢 정규장"
@@ -36,7 +42,7 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
     
-    /* [🛡️ 블러 박멸 로직] */
+    /* [🛡️ 블러 박멸 로직] 새로고침 시 흐려짐 현상 원천 차단 */
     [data-stale="true"] { opacity: 1 !important; filter: none !important; transition: none !important; }
     [data-stale="true"] * { opacity: 1 !important; filter: none !important; }
 
@@ -79,15 +85,19 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 데이터 엔진 (벌크 페칭 및 안정성 고도화)
+# 3. 데이터 엔진 (벌크 페칭 로직 및 배포 환경 예외 처리)
 DB_FILE = "portfolio.csv"
 def load_data():
     if os.path.exists(DB_FILE):
-        df = pd.read_csv(DB_FILE)
-        return df.rename(columns={'ticker': 'Ticker', 'price': 'Price', 'quantity': 'Quantity', '평단가': 'Price', '수량': 'Quantity'})
+        try:
+            df = pd.read_csv(DB_FILE)
+            return df.rename(columns={'ticker': 'Ticker', 'price': 'Price', 'quantity': 'Quantity', '평단가': 'Price', '수량': 'Quantity'})
+        except: return pd.DataFrame(columns=["Ticker", "Price", "Quantity"])
     return pd.DataFrame(columns=["Ticker", "Price", "Quantity"])
 
-def save_data(df): df.to_csv(DB_FILE, index=False)
+def save_data(df): 
+    # [🛡️ 배포 환경 참고] 깃허브 배포 시 로컬 저장은 임시 메모리에만 유지됨
+    df.to_csv(DB_FILE, index=False)
 
 def render_metric_card(label, val_fmt, sub_fmt, color):
     card_html = f"""<div class="custom-card"><div style="color:#aaa; font-size:0.95rem;">{label}</div><div class="metric-val">{val_fmt}</div><div style="color: {color}; font-size:0.95rem;">{sub_fmt}</div></div>"""
@@ -159,7 +169,7 @@ if menu == "📍 시장 주요 지표":
                 m = market_metrics[name]
                 render_metric_card(name, f"{m['val']:,.0f}", f"{m['diff']:+.1f} ({m['pct']:+.1f}%)", "#34c759" if m['diff']>0 else "#ff3b30")
                 
-                # [🛡️ 지수 캔들차트 복구 성역]
+                # [🛡️ 지수 캔들차트 성역 보존]
                 fig = go.Figure(data=[go.Candlestick(
                     x=market_charts[name].index, 
                     open=market_charts[name]['Open'], 
@@ -203,10 +213,10 @@ elif menu == "💰 내 자산 관리":
                 pp = float(hist_t['Close'].iloc[-2].item())
                 info_t = yf.Ticker(sym_t).info
                 
-                # [🛡️ 원자재 섹터 매핑]
+                # [🛡️ 원자재 섹터 매핑] SLV, GLDM
                 target_sector = "원자재" if sym_t in ["SLV", "GLDM"] else info_t.get('sector', '기타')
                 
-                # [🛡️ 정밀도 대응]
+                # [🛡️ 어도비 등 소수점 정밀도 대응]
                 val = round(cp * row['Quantity'], 1)
                 inv = round(row['Price'] * row['Quantity'], 1)
                 prev_val = round(pp * row['Quantity'], 1)
@@ -255,6 +265,8 @@ elif menu == "💰 내 자산 관리":
         if not portfolio_df.empty:
             del_t = st.selectbox("삭제 종목", portfolio_df['Ticker'].tolist())
             if st.button("삭제"): save_data(portfolio_df[portfolio_df['Ticker'] != del_t]); st.rerun()
+            # [🛡️ 배포 환경 팁] 수동으로 CSV 다운로드 버튼 제공 (데이터 백업용)
+            st.download_button("내 포트폴리오 백업(CSV)", portfolio_df.to_csv(index=False), "portfolio_backup.csv", "text/csv")
 
     if not portfolio_df.empty:
         st.markdown(f'<div class="section-header" style="margin-top:20px !important;">🗺️ 섹터별 자산 비중 & 일일 등락 ({cur})</div>', unsafe_allow_html=True)
@@ -280,7 +292,6 @@ elif menu == "📊 종목 정밀 분석":
         hist, info = get_chart_data(target, interval=interval)
         if not hist.empty:
             st.markdown('<div style="height: 10px;"></div>', unsafe_allow_html=True)
-            # 차트 끊김 방지용 슬라이싱
             plot_df = hist.iloc[-150:]
             fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
             
@@ -300,10 +311,9 @@ elif menu == "📊 종목 정밀 분석":
 
             dy_raw = info.get('dividendYield') or info.get('trailingAnnualDividendYield')
             div_fmt = f"{(dy_raw * 100 if dy_raw and dy_raw < 1.0 else dy_raw or 0):.2f}%" if dy_raw else "0.00%"
-            
             st.markdown(f'<div class="detail-header-text">📊 {info.get("shortName", target)} 기업 핵심 지표</div>', unsafe_allow_html=True)
             
-            # [🛡️ 지표 레이아웃 성역]
+            # [🛡️ 지표 레이아웃 성역 보존]
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("시가총액", f"${info.get('marketCap', 0)/1e9:.1f}B")
             m2.metric("현재 주가", f"${hist['Close'].iloc[-1]:,.2f}") 
@@ -321,4 +331,4 @@ elif menu == "📊 종목 정밀 분석":
 st.sidebar.markdown('<div style="min-height: 40vh;"></div>', unsafe_allow_html=True)
 st.sidebar.markdown(f'<div class="market-status-badge">{get_us_market_status()}</div>', unsafe_allow_html=True)
 st.sidebar.divider()
-st.sidebar.markdown(f"<div style='text-align: center; color: #888; font-size: 0.95rem; font-weight: 600;'>v26.4.24.11 | {datetime.now().strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
+st.sidebar.markdown(f"<div style='text-align: center; color: #888; font-size: 0.95rem; font-weight: 600;'>v26.4.24.12 | {datetime.now().strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
