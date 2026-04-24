@@ -5,11 +5,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import numpy as np
-from streamlit_gsheets import GSheetsConnection
 
-# 1. 라이브 갱신 설정 (20초 자동 새로고침)
+# [🛡️ 서버 연동 도구 예외 처리]
+try:
+    from streamlit_gsheets import GSheetsConnection
+    GSHEETS_AVAILABLE = True
+except ImportError:
+    GSHEETS_AVAILABLE = False
+
 try:
     from streamlit_autorefresh import st_autorefresh
     st_autorefresh(interval=20000, key="live_refresh")
@@ -17,28 +22,43 @@ except ImportError:
     st.sidebar.error("💡 'pip install streamlit-autorefresh'가 필요합니다.")
 
 # [제5원칙] 화면 효율 극대화 및 버전 업데이트
-st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.24.18", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="미국 주식 시그니처 터미널 v26.4.25.4", layout="wide", initial_sidebar_state="expanded")
 
-# 미국 시장 상태 판별 함수 (한국 시간 강제 고정)
+# [🛡️ 성역] 미국 시장 상태 판별 함수 (뉴욕 현지 시계 기준)
 def get_us_market_status():
-    now_utc = datetime.utcnow()
-    now_kst = now_utc + timedelta(hours=9) 
-    weekday = now_kst.weekday()
-    hour, minute = now_kst.hour, now_kst.minute
-    curr_time = hour + minute / 60.0
-    if weekday >= 5: return "⚪ 시장 마감 (주말)"
-    if 10.0 <= curr_time < 17.0: return "☀️ 데이마켓"
-    elif 17.0 <= curr_time < 22.5: return "🌅 프리마켓"
-    elif curr_time >= 22.5 or curr_time < 5.0: return "🟢 정규장"
-    else: return "⚪ 시장 마감"
+    # 1. UTC 시간 확보 후 뉴욕 시간(ET)으로 변환 (서머타임 적용 UTC-4)
+    now_utc = datetime.now(timezone.utc)
+    now_et = now_utc - timedelta(hours=4)
+    
+    weekday = now_et.weekday()
+    hour = now_et.hour
+    minute = now_et.minute
+    curr_time_et = hour + minute / 60.0
+
+    # 2. 뉴욕 기준 주말 판별
+    if weekday >= 5: 
+        return "⚪ 시장 마감 (주말)"
+
+    # 3. 뉴욕 현지 시각 기준 장 상태 판별 (불필요한 'OPEN' 문구 삭제)
+    if 9.5 <= curr_time_et < 16.0:
+        return "🟢 정규장"
+    elif 4.0 <= curr_time_et < 9.5:
+        return "🌅 프리마켓"
+    elif 16.0 <= curr_time_et < 20.0:
+        return "🌇 애프터마켓"
+    else:
+        # 한국 데이마켓 병행 체크
+        now_kst = now_utc + timedelta(hours=9)
+        kst_curr = now_kst.hour + now_kst.minute / 60.0
+        if 10.0 <= kst_curr < 17.0:
+            return "☀️ 데이마켓"
+        return "⚪ 시장 마감"
 
 # 2. 통합 CSS 스타일링 (블러 제거 및 마스터 성역 보존)
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
     html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
-    
-    /* [🛡️ 블러 박멸 로직] */
     [data-stale="true"] { opacity: 1 !important; filter: none !important; transition: none !important; }
     [data-stale="true"] * { opacity: 1 !important; filter: none !important; }
 
@@ -49,7 +69,6 @@ st.markdown("""
     [data-testid="stSidebar"] .stRadio p { font-size: 1.55rem !important; font-weight: 800 !important; padding: 10px 0px !important; }
     .section-header { font-size: 1.4rem !important; font-weight: 700 !important; margin-top: 2px !important; margin-bottom: 10px !important; color: #ffffff; }
     
-    /* 🔍 버튼 디자인 성역 (222px) */
     div.stButton { width: 100% !important; display: flex !important; }
     button[kind="primary"] {
         width: 100% !important; height: 222px !important; 
@@ -64,7 +83,6 @@ st.markdown("""
     .wide-mini-card { background-color: rgba(128, 128, 128, 0.1); border: 1px solid rgba(128, 128, 128, 0.05); border-radius: 12px; padding: 0 25px; margin-top: 10px; display: flex; align-items: center; height: 75px; }
     .wide-mini-card-label { color:#aaa; font-size:1.05rem; font-weight:600; margin-right:15px; }
 
-    /* [🛡️ 콤팩트 성역] 32px */
     [data-testid="column"] div[data-baseweb="select"], [data-testid="column"] div[data-testid="stTextInput"] > div:first-child {
         background-color: rgba(128, 128, 128, 0.1) !important; border: 1px solid rgba(128, 128, 128, 0.2) !important;
         border-radius: 10px !important; height: 32px !important; display: flex !important; align-items: center !important;
@@ -81,41 +99,42 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 데이터 엔진 (실시간 구글 시트 연동 & 증발 방지 로직)
+# 3. 데이터 엔진
 DB_FILE = "portfolio.csv"
 
 def load_data():
     default_df = pd.DataFrame(columns=["Ticker", "Price", "Quantity"])
-    try:
-        # [🛡️ 초강력 로드 로직] 캐시를 완전히 무시하고 시트에서 직접 읽음
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        df = conn.read(ttl=0)
-        if df is not None and not df.empty:
-            # 컬럼명 정제 로직 (대소문자/공백 해결)
-            df.columns = [str(c).strip().capitalize() for c in df.columns]
-            df = df.rename(columns={'Price': 'Price', 'Quantity': 'Quantity', 'Ticker': 'Ticker', '평단가': 'Price', '수량': 'Quantity'})
-            # 유효한 티커만 필터링
-            df = df.dropna(subset=["Ticker"])
-            st.session_state.db_connection = True
+    if GSHEETS_AVAILABLE:
+        try:
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            df = conn.read(ttl=0)
+            if df is not None and not df.empty:
+                col_map = {str(c).lower().strip(): c for c in df.columns}
+                final_df = pd.DataFrame()
+                t_col = next((c for k, c in col_map.items() if 'ticker' in k or '종목' in k), df.columns[0])
+                p_col = next((c for k, c in col_map.items() if 'price' in k or '평단' in k), df.columns[1])
+                q_col = next((c for k, c in col_map.items() if 'quantity' in k or '수량' in k), df.columns[2])
+                final_df["Ticker"] = df[t_col].astype(str).str.upper()
+                final_df["Price"] = pd.to_numeric(df[p_col], errors='coerce').fillna(0)
+                final_df["Quantity"] = pd.to_numeric(df[q_col], errors='coerce').fillna(0)
+                st.session_state.db_status = "🟢 구글 시트 동기화 성공"
+                return final_df.dropna(subset=["Ticker"])
+        except: pass
+    if os.path.exists(DB_FILE):
+        try:
+            df = pd.read_csv(DB_FILE)
+            df = df.rename(columns={'ticker': 'Ticker', 'price': 'Price', 'quantity': 'Quantity', '평단가': 'Price', '수량': 'Quantity'})
             return df[["Ticker", "Price", "Quantity"]]
-    except:
-        st.session_state.db_connection = False
-        if os.path.exists(DB_FILE):
-            try:
-                df = pd.read_csv(DB_FILE)
-                return df.rename(columns={'ticker': 'Ticker', 'price': 'Price', 'quantity': 'Quantity'})
-            except: pass
+        except: return default_df
     return default_df
 
 def save_data(df):
     try:
-        # 1. 로컬 파일 즉시 업데이트
         df.to_csv(DB_FILE, index=False)
-        # 2. 구글 시트 즉시 덮어쓰기
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        conn.update(data=df)
-        # [🛡️ 증발 방지 핵심] 저장 후 모든 캐시를 삭제하여 새로고침 시 최신본 강제 로드
-        st.cache_data.clear()
+        if GSHEETS_AVAILABLE:
+            conn = st.connection("gsheets", type=GSheetsConnection)
+            conn.update(data=df)
+            st.cache_data.clear() 
     except: pass
 
 def render_metric_card(label, val_fmt, sub_fmt, color):
@@ -160,8 +179,7 @@ def get_chart_data(ticker, interval="1d"):
         if isinstance(hist.columns, pd.MultiIndex): hist.columns = hist.columns.get_level_values(0)
         for w in [5, 30, 60, 120, 200]: hist[f'MA{w}'] = hist['Close'].rolling(window=w).mean()
         h9, l9 = hist['High'].rolling(9).max(), hist['Low'].rolling(9).min()
-        hist['Tenkan'] = (h9 + l9) / 2
-        h26, l26 = hist['High'].rolling(26).max(), hist['Low'].rolling(26).min()
+        hist['Tenkan'], h26, l26 = (h9 + l9) / 2, hist['High'].rolling(26).max(), hist['Low'].rolling(26).min()
         hist['Kijun'] = (h26 + l26) / 2
         hist['SpanA'] = ((hist['Tenkan'] + hist['Kijun']) / 2).shift(26)
         h52, l52 = hist['High'].rolling(52).max(), hist['Low'].rolling(52).min()
@@ -203,7 +221,7 @@ elif menu == "💰 내 자산 관리":
     st.markdown('<div class="main-title">💰 내 자산 관리</div>', unsafe_allow_html=True)
     c_h, c_s = st.columns([9.3, 0.7])
     with c_h: st.markdown('<div class="section-header">💳 내 자산 포트폴리오 요약</div>', unsafe_allow_html=True)
-    with c_s: st.session_state.currency = st.selectbox("", ["USD", "KRW", "EUR", "JPY"], index=0, label_visibility="collapsed")
+    with c_s: st.session_state.currency = st.selectbox("통화", ["USD", "KRW", "EUR", "JPY"], index=0, label_visibility="collapsed")
     cur, rate = st.session_state.get('currency', 'USD'), fx_rates.get(st.session_state.get('currency', 'USD'), 1.0)
     sym = {'USD': '$', 'KRW': '₩', 'EUR': '€', 'JPY': '¥'}[cur]
     
@@ -218,21 +236,34 @@ elif menu == "💰 내 자산 관리":
                 cp, pp = float(hist_t['Close'].iloc[-1].item()), float(hist_t['Close'].iloc[-2].item())
                 info_t = yf.Ticker(sym_t).info
                 target_sector = "원자재" if sym_t in ["SLV", "GLDM"] else info_t.get('sector', '기타')
-                val, inv, prev_v = round(cp * row['Quantity'], 1), round(row['Price'] * row['Quantity'], 1), round(pp * row['Quantity'], 1)
-                t_v += val; t_i += inv; t_p += prev_v; t_d += round(float(info_t.get('dividendRate', 0) or 0) * row['Quantity'], 1)
-                r_l.append({**row.to_dict(), 'Sector': target_sector, 'Val': val, 'Profit': round(((cp - row['Price']) / row['Price'] * 100) if row['Price'] != 0 else 0.0, 1), 'DayPct': round(((cp - pp) / pp * 100) if pp != 0 else 0.0, 1)})
+                
+                # [🛡️ 수치 연산 성역]
+                val = float(cp * row['Quantity'])
+                inv = float(row['Price'] * row['Quantity'])
+                prev_v = float(pp * row['Quantity'])
+                t_v += val; t_i += inv; t_p += prev_v
+                t_d += float(float(info_t.get('dividendRate', 0) or 0) * row['Quantity'])
+                
+                r_l.append({**row.to_dict(), 'Sector': target_sector, 'Val': val, 
+                            'Profit': ((cp - row['Price']) / row['Price'] * 100) if row['Price'] != 0 else 0.0, 
+                            'DayPct': ((cp - pp) / pp * 100) if pp != 0 else 0.0})
             except: pass
     
-    t_v_c, t_r_c, t_d_c, d_c_c = t_v * rate, (t_v - t_i) * rate, t_d * rate, (t_v - t_p) * rate
-    r_p, d_p = round(((t_v - t_i) / t_i * 100) if t_i > 0 else 0, 1), round(((t_v - t_p) / t_p * 100) if t_p > 0 else 0, 1)
+    # [🛡️ 요약 지표 - 소수점 2자리 문자열 강제 포맷팅]
+    t_v_c_str = f"{t_v * rate:,.2f}"
+    t_r_c_str = f"{(t_v - t_i) * rate:,.2f}"
+    t_d_c_str = f"{t_d * rate:,.2f}"
+    d_c_c_str = f"{(t_v - t_p) * rate:,.2f}"
+    r_p_raw = round(((t_v - t_i) / t_i * 100), 2) if t_i > 0 else 0.0
+    d_p_raw = round(((t_v - t_p) / t_p * 100), 2) if t_p > 0 else 0.0
     
     c1, c2, c3 = st.columns([4.65, 4.65, 0.7])
     with c1:
-        render_metric_card("현재 총 자산 현황", f"{sym}{t_v_c:,.1f}", f"실시간 {cur} 합계", "#888")
-        st.markdown(f'<div class="wide-mini-card"><span class="wide-mini-card-label">🔥 총 누적 수익:</span><span style="color:{"#34c759" if t_r_c>=0 else "#ff3b30"}; font-weight:700;">{sym}{t_r_c:,.1f} ({r_p:+.1f}%)</span></div>', unsafe_allow_html=True)
+        render_metric_card("현재 총 자산 현황", f"{sym}{t_v_c_str}", f"실시간 {cur} 합계", "#888")
+        st.markdown(f'<div class="wide-mini-card"><span class="wide-mini-card-label">🔥 총 누적 수익:</span><span style="color:{"#34c759" if (t_v-t_i)>=0 else "#ff3b30"}; font-weight:700;">{sym}{t_r_c_str} ({r_p_raw:+.2f}%)</span></div>', unsafe_allow_html=True)
     with c2:
-        render_metric_card("연간 예상 배당금 현황", f"{sym}{t_d_c:,.1f}", "세전 연간 합계", "#888")
-        st.markdown(f'<div class="wide-mini-card"><span class="wide-mini-card-label">📊 전일 대비 손익:</span><span style="color:{"#34c759" if d_c_c>=0 else "#ff3b30"}; font-weight:700;">{sym}{d_c_c:,.1f} ({d_p:+.1f}%)</span></div>', unsafe_allow_html=True)
+        render_metric_card("연간 예상 배당금 현황", f"{sym}{t_d_c_str}", "세전 연간 합계", "#888")
+        st.markdown(f'<div class="wide-mini-card"><span class="wide-mini-card-label">📊 전일 대비 손익:</span><span style="color:{"#34c759" if (t_v-t_p)>=0 else "#ff3b30"}; font-weight:700;">{sym}{d_c_c_str} ({d_p_raw:+.2f}%)</span></div>', unsafe_allow_html=True)
     with c3:
         if st.button("🔍", key="unified_btn", type="primary"): st.session_state.show_portfolio_detail = not st.session_state.get('show_portfolio_detail', False)
     
@@ -247,7 +278,7 @@ elif menu == "💰 내 자산 관리":
             tb = "<table class='custom-table'><thead><tr><th>종목</th><th>섹터</th><th>수량</th><th>수익률</th><th>평가액</th></tr></thead><tbody>"
             for _, r in df_d.iterrows():
                 p_cl = "pos-val" if r['Profit'] > 0 else "neg-val"
-                tb += f"<tr><td><b>{r['Ticker']}</b></td><td>{r['Sector']}</td><td>{r['Quantity']:,.1f}</td><td class='{p_cl}'>{r['Profit']:+.1f}%</td><td><b>{sym}{r['Val']*rate:,.1f}</b></td></tr>"
+                tb += f"<tr><td><b>{r['Ticker']}</b></td><td>{r['Sector']}</td><td>{r['Quantity']:,.2f}</td><td class='{p_cl}'>{r['Profit']:+.2f}%</td><td><b>{sym}{r['Val']*rate:,.2f}</b></td></tr>"
             st.markdown(tb + "</tbody></table>", unsafe_allow_html=True)
 
     st.markdown('<div style="margin-top: 15px;"></div>', unsafe_allow_html=True)
@@ -258,15 +289,26 @@ elif menu == "💰 내 자산 관리":
         if not portfolio_df.empty:
             del_t = st.selectbox("삭제 종목", portfolio_df['Ticker'].tolist())
             if st.button("삭제"): save_data(portfolio_df[portfolio_df['Ticker'] != del_t]); st.rerun()
-            # 서버 상태 출력
-            conn_status = "🟢 구글 시트 실시간 연동 중" if st.session_state.get('db_connection', False) else "🔴 서버 연결 실패 (로컬 모드)"
-            st.markdown(f"<div style='font-size:0.85rem; color:#888; margin-top:10px;'>📡 상태: {conn_status}</div>", unsafe_allow_html=True)
+            st.info(st.session_state.get('db_status', '📡 서버 연결 대기 중...'))
+            st.download_button("내 포트폴리오 백업(CSV)", portfolio_df.to_csv(index=False), "portfolio_backup.csv", "text/csv")
 
     if r_l:
         st.markdown(f'<div class="section-header" style="margin-top:20px !important;">🗺️ 섹터별 자산 비중 & 일일 등락 ({cur})</div>', unsafe_allow_html=True)
-        df_tr = pd.DataFrame(r_l); df_tr['Val_Conv'] = df_tr['Val'] * rate
-        fig_tr = px.treemap(df_tr, path=[px.Constant("Portfolio"), 'Sector', 'Ticker'], values='Val_Conv', color='DayPct', color_continuous_scale='RdYlGn', color_continuous_midpoint=0, custom_data=['DayPct', 'Val_Conv'])
-        fig_tr.update_traces(texttemplate=f"<b>%{{label}}</b><br>{sym}%{{customdata[1]:,.1f}}<br><b>%{{customdata[0]:+.1f}}%</b>", textfont=dict(size=22, color="white"), insidetextfont=dict(size=22))
+        df_tr = pd.DataFrame(r_l)
+        # [🛡️ 트리맵 정밀도 이원화 - 문자열 잠금]
+        df_tr['Val_Conv'] = (df_tr['Val'] * rate)
+        df_tr['Val_Txt'] = df_tr['Val_Conv'].apply(lambda x: f"{round(x):,}") 
+        df_tr['DayPct_Txt'] = df_tr['DayPct'].apply(lambda x: f"{x:+.1f}%") 
+        
+        finviz_colors = [[0, "#F63538"], [0.33, "#BF4045"], [0.5, "#414554"], [0.66, "#35764E"], [1, "#30CC5A"]]
+        fig_tr = px.treemap(df_tr, path=[px.Constant("Portfolio"), 'Sector', 'Ticker'], values='Val_Conv', color='DayPct', 
+                            color_continuous_scale=finviz_colors, color_continuous_midpoint=0, range_color=[-3, 3],
+                            custom_data=['DayPct_Txt', 'Val_Txt'])
+        fig_tr.update_traces(
+            texttemplate="<b>%{label}</b><br>" + sym + "%{customdata[1]}<br><b>%{customdata[0]}</b>", 
+            textfont=dict(size=22, color="white"), 
+            insidetextfont=dict(size=22)
+        )
         fig_tr.update_layout(coloraxis_showscale=False, margin=dict(l=0, r=0, t=0, b=0), height=380, paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_tr, use_container_width=True)
 
@@ -310,4 +352,4 @@ elif menu == "📊 종목 정밀 분석":
 st.sidebar.markdown('<div style="min-height: 40vh;"></div>', unsafe_allow_html=True)
 st.sidebar.markdown(f'<div class="market-status-badge">{get_us_market_status()}</div>', unsafe_allow_html=True)
 st.sidebar.divider()
-st.sidebar.markdown(f"<div style='text-align: center; color: #888; font-size: 0.95rem; font-weight: 600;'>v26.4.24.18 | {datetime.now().strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
+st.sidebar.markdown(f"<div style='text-align: center; color: #888; font-size: 0.95rem; font-weight: 600;'>v26.4.25.4 | {datetime.now().strftime('%H:%M:%S')}</div>", unsafe_allow_html=True)
